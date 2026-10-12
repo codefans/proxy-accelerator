@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
 
+env:
+  SING_BOX_VERSION: "1.14.3"
+
 jobs:
   python:
     name: subscribe 单元测试
@@ -19,48 +22,44 @@ jobs:
   shell:
     name: shellcheck + nftables + sing-box 配置
     runs-on: ubuntu-latest
-    env:
-      SING_BOX_VERSION: "1.14.3"
     steps:
       - uses: actions/checkout@v4
+
       - name: shellcheck
-        run: shellcheck -S warning $(git ls-files '*.sh') subscribe/pa
-      - name: nftables 模板语法
+        run: LC_ALL=C.UTF-8 shellcheck -S warning $(git ls-files '*.sh') subscribe/pa
+
+      - name: nftables 四份规则语法（真实 nft -c）
         run: |
           sudo apt-get install -y -qq nftables >/dev/null
-          sed -e 's|__SSH_RULE__|tcp dport 22 accept|' -e 's|__WG_PORT__|51820|g' -e 's|__HOP_PORTS__|20000-30000|g' \
-              -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
-              relay/nftables.conf.template > /tmp/relay.nft
-          sudo nft -c -f /tmp/relay.nft
-          sed -e 's|__SSH_RULE__|iifname "tailscale0" tcp dport 22 accept|' -e 's|__WG_PORT__|51820|g' -e 's|__HOP_PORTS__|20000-30000|g' \
-              -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
-              relay/nftables.conf.template > /tmp/relay-ts.nft
-          sudo nft -c -f /tmp/relay-ts.nft
+          render_relay() {
+            sed -e "s|__SSH_RULE__|$1|" -e 's|__WG_PORT__|51820|g' -e 's|__HOP_PORTS__|20000-30000|g' \
+                -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
+                relay/nftables.conf.template
+          }
+          render_relay 'tcp dport 22 accept' > /tmp/relay.nft;                          sudo nft -c -f /tmp/relay.nft
+          render_relay 'iifname "tailscale0" tcp dport 22 accept' > /tmp/relay-ts.nft;  sudo nft -c -f /tmp/relay-ts.nft
           sudo mkdir -p /etc/nftables.d
           sed -e 's|__WAN_IF__|eth0|g' -e 's|__HY2_PORT__|443|g' -e 's|__VLESS_PORT__|443|g' -e 's|__HOP_PORTS__|20000-30000|g' \
               node-ph/v6/nftables-v6.conf.template | sudo tee /etc/nftables.d/v6.nft >/dev/null
-          sed -e 's|__WAN_IF__|eth0|g' node-ph/nftables.conf.template > /tmp/node.nft
-          sudo nft -c -f /tmp/node.nft
-      - name: IPv6 节点 jq 渲染 + sing-box check
-        run: |
-          sudo apt-get install -y -qq jq >/dev/null
-          cat > /tmp/node.json <<'J'
-          {"version":1,"params":{"REALITY_PRIVATE_KEY":"sEDWl52HNrbmKpgbyxfBwZLqIPJDQd2Ql3RbDVXpzGw","SHORT_ID":"0123456789abcdef","REALITY_SNI":"www.microsoft.com","SNI":"www.bing.com","HY2_PH_PORT":"443","VLESS_PH_PORT":"443","HOP_PORTS":"20000-30000","UP_MBPS":"40","DOWN_MBPS":"40"},"users":[{"name":"b","uuid":"11111111-2222-3333-4444-555555555555","hy2_password":"pw"},{"name":"a","uuid":"22222222-2222-3333-4444-555555555555","hy2_password":"pw2"}],"v6_host":"ph.example.com"}
-          J
-          jq -f node-ph/v6/render.jq --arg cert /tmp/sb/cert.pem --arg key /tmp/sb/key.pem /tmp/node.json > /tmp/sb/v6.json
-          test "$(jq -r '.inbounds[0].users[0].name' /tmp/sb/v6.json)" = a
-          sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box check -c /tmp/sb/v6.json
+          sed -e 's|__WAN_IF__|eth0|g' node-ph/nftables.conf.template > /tmp/node.nft; sudo nft -c -f /tmp/node.nft
           # relay-standby 的规则内嵌在 install.sh 里：抽出 heredoc 渲染后检查
           sed -n '/^cat > \/etc\/nftables.conf <<NFT$/,/^NFT$/p' relay-standby/install.sh | sed '1d;$d' \
             | sed -e 's|\$SSH_PORT|22|g' -e 's|\$WAN_IF|eth0|g' -e 's|\$TCP_PORTS|443,8443|g' -e 's|\$UDP_PORTS|443,8443|g' \
                   -e 's|\$HOP_PORTS|20000-30000|g' -e 's|\$PRIMARY_IP|203.0.113.1|g' > /tmp/standby.nft
           sudo nft -c -f /tmp/standby.nft
-      - name: sing-box 配置模板（官方构建，去掉 v2ray_api 段）
+
+      - name: 下载 sing-box 并生成测试证书
         run: |
           curl -fsSL -o sb.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
-          tar xzf sb.tar.gz && SB="sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box"
-          mkdir -p /tmp/sb && openssl ecparam -genkey -name prime256v1 -out /tmp/sb/key.pem
+          tar xzf sb.tar.gz
+          mkdir -p /tmp/sb
+          openssl ecparam -genkey -name prime256v1 -out /tmp/sb/key.pem
           openssl req -new -x509 -days 1 -key /tmp/sb/key.pem -out /tmp/sb/cert.pem -subj "/CN=www.bing.com"
+          "sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" version
+
+      - name: 中转 sing-box 配置模板 check（官方构建，去掉 v2ray_api 段）
+        run: |
+          SB="sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box"
           PRIV="$($SB generate reality-keypair | awk '/PrivateKey/{print $2}')"
           sed -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
               -e 's|__UP_MBPS__|50|g' -e 's|__DOWN_MBPS__|50|g' -e 's|__SNI__|www.bing.com|g' -e 's|__REALITY_SNI__|www.microsoft.com|g' \
@@ -69,6 +68,24 @@ jobs:
           jq 'del(.experimental.v2ray_api)' /tmp/sb/full.json > /tmp/sb/config.json
           $SB check -c /tmp/sb/config.json
           cp /tmp/sb/full.json /tmp/sb-full.json
+
+      - name: IPv6 节点配置 jq 渲染 + check
+        run: |
+          SB="sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box"
+          cat > /tmp/node.json <<'J'
+          {"version":1,"params":{"REALITY_PRIVATE_KEY":"sEDWl52HNrbmKpgbyxfBwZLqIPJDQd2Ql3RbDVXpzGw","SHORT_ID":"0123456789abcdef","REALITY_SNI":"www.microsoft.com","SNI":"www.bing.com","HY2_PH_PORT":"443","VLESS_PH_PORT":"443","HOP_PORTS":"20000-30000","UP_MBPS":"40","DOWN_MBPS":"40"},"users":[{"name":"b","uuid":"11111111-2222-3333-4444-555555555555","hy2_password":"pw"},{"name":"a","uuid":"22222222-2222-3333-4444-555555555555","hy2_password":"pw2"}],"v6_host":"ph.example.com"}
+          J
+          jq -f node-ph/v6/render.jq --arg cert /tmp/sb/cert.pem --arg key /tmp/sb/key.pem /tmp/node.json > /tmp/sb/v6.json
+          test "$(jq -r '.inbounds[0].users[0].name' /tmp/sb/v6.json)" = a
+          $SB check -c /tmp/sb/v6.json
+
+      - name: 限速脚本时段逻辑（干跑）
+        run: |
+          printf 'WAN_IF=eth0\nRATE_MBIT=40\nRATE_MBIT_PEAK=25\nRATE_MBIT_NIGHT=0\nPEAK_HOURS=20-23\nNIGHT_HOURS=23-08\n' > /tmp/node.env
+          expect() { rm -f /tmp/tc.state; out="$(PA_NODE_ENV=/tmp/node.env PA_TC_STATE=/tmp/tc.state PA_TC_DRYRUN=1 bash node-ph/pa-tc.sh apply "$1")"; grep -q "$2" <<<"$out" || { echo "小时 $1 期望 '$2' 实际: $out"; exit 1; }; }
+          expect 08 'rate 40mbit'; expect 12 'rate 40mbit'; expect 20 'rate 25mbit'; expect 22 'rate 25mbit'
+          expect 23 'qdisc del';   expect 00 'qdisc del';   expect 07 'qdisc del'
+
       - uses: actions/upload-artifact@v4
         with:
           name: rendered-config
@@ -81,8 +98,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      SING_BOX_VERSION: "1.14.3"
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f relay/Dockerfile --build-arg SING_BOX_VERSION=${SING_BOX_VERSION} -t relay:ci .
