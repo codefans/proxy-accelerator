@@ -100,7 +100,13 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f relay/Dockerfile --build-arg SING_BOX_VERSION=${SING_BOX_VERSION} -t relay:ci .
+      - name: docker build（失败时把日志尾部写进运行摘要，摘要页无需登录即可看）
+        run: |
+          set -o pipefail
+          if ! docker build --progress=plain -f relay/Dockerfile --build-arg SING_BOX_VERSION=${SING_BOX_VERSION} -t relay:ci . 2>&1 | tee /tmp/build.log; then
+            { echo '## docker build 失败，日志尾部'; echo '```'; tail -n 80 /tmp/build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - run: docker run --rm --entrypoint sing-box relay:ci version
       - uses: actions/download-artifact@v4
         with:
