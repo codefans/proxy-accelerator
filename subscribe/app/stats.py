@@ -1,14 +1,16 @@
 """sing-box v2ray_api 流量统计客户端。
 
 只用到 StatsService/QueryStats 一个方法、两条消息，手工编解码 protobuf，不生成代码。
-线上格式（与 v2ray-core 一致）：
+线上格式（sing-box experimental/v2rayapi/stats.proto，字段编号与 v2ray-core 一致，但 proto 包名不同）：
+  package experimental.v2rayapi
   QueryStatsRequest  { string pattern = 1; bool reset = 2; }
   QueryStatsResponse { repeated Stat stat = 1; }   Stat { string name = 1; int64 value = 2; }
 统计项名字形如 user>>>alice>>>traffic>>>uplink。
 """
 from .config import STATS_ADDR
 
-METHOD = "/v2ray.core.app.stats.command.StatsService/QueryStats"
+# 注意是 sing-box 自己的包名，不是 v2ray 原版的 /v2ray.core.app.stats.command.StatsService/QueryStats
+METHOD = "/experimental.v2rayapi.StatsService/QueryStats"
 
 
 def _varint(n: int) -> bytes:

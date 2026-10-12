@@ -1,4 +1,9 @@
-from app.stats import _varint, decode_stats, encode_query, user_traffic_from_stats
+from app.stats import METHOD, _varint, decode_stats, encode_query, user_traffic_from_stats
+
+
+def test_method_path_is_singbox_package():
+    # sing-box experimental/v2rayapi/stats.proto: package experimental.v2rayapi; service StatsService
+    assert METHOD == "/experimental.v2rayapi.StatsService/QueryStats"
 
 
 def _stat(name: str, value: int) -> bytes:
