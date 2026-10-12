@@ -1,0 +1,13 @@
+[Unit]
+Description=proxy-accelerator egress rate limit (tc tbf, time-of-day aware)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/pa-tc.sh apply
+ExecStop=/usr/local/sbin/pa-tc.sh stop
+
+[Install]
+WantedBy=multi-user.target

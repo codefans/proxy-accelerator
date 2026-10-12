@@ -1,0 +1,85 @@
+# proxy-accelerator · 用户 {{ user.name }} · 生成于 {{ generated_at }}
+{% if reason %}
+# !!! {{ reason }} !!!
+{% endif %}
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: warning
+unified-delay: true
+tcp-concurrent: true
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter: ["*.lan", "localhost.ptlogin2.qq.com", "+.msftconnecttest.com", "+.msftncsi.com"]
+  nameserver: ["223.5.5.5", "119.29.29.29"]
+  fallback: ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+  fallback-filter: { geoip: true, geoip-code: CN, ipcidr: ["240.0.0.0/4"] }
+
+{% if nodes %}
+proxies:
+{% for n in nodes %}
+  - name: {{ (n.name ~ " hy2")|q }}
+    type: hysteria2
+    server: {{ n.host|q }}
+    port: {{ n.hy2_port }}
+{% if n.hy2_ports %}
+    ports: {{ n.hy2_ports|q }}
+{% endif %}
+    password: {{ user.hy2_password|q }}
+    sni: {{ n.hy2_sni|q }}
+    skip-cert-verify: {{ "true" if n.hy2_insecure else "false" }}
+    alpn: [h3]
+    up: {{ n.up_mbps }}
+    down: {{ n.down_mbps }}
+  - name: {{ (n.name ~ " reality")|q }}
+    type: vless
+    server: {{ n.host|q }}
+    port: {{ n.vless_port }}
+    uuid: {{ user.uuid|q }}
+    network: tcp
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    servername: {{ n.reality_sni|q }}
+    client-fingerprint: chrome
+    reality-opts: { public-key: {{ n.reality_pubkey|q }}, short-id: {{ n.short_id|q }} }
+{% endfor %}
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies: ["♻️ 自动(PH优先)", {% for n in nodes %}{{ (n.name ~ " hy2")|q }}, {{ (n.name ~ " reality")|q }}, {% endfor %}DIRECT]
+  - name: "♻️ 自动(PH优先)"
+    type: fallback
+    url: https://www.gstatic.com/generate_204
+    interval: 60
+    proxies: [{% for n in nodes %}{{ (n.name ~ " hy2")|q }}, {{ (n.name ~ " reality")|q }}{{ ", " if not loop.last }}{% endfor %}]
+{% if ph_nodes %}
+  - name: "🤖 AI 服务"
+    type: select
+    proxies: [{% for n in ph_nodes %}{{ (n.name ~ " hy2")|q }}, {{ (n.name ~ " reality")|q }}, {% endfor %}"🚀 节点选择"]
+{% endif %}
+
+rules:
+{% if ph_nodes %}
+  - GEOSITE,category-ai-chat-!cn,🤖 AI 服务
+{% endif %}
+  - GEOSITE,private,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - GEOSITE,cn,DIRECT
+  - GEOIP,cn,DIRECT,no-resolve
+  - MATCH,🚀 节点选择
+{% else %}
+proxies: []
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies: [DIRECT]
+
+rules:
+  - MATCH,DIRECT
+{% endif %}

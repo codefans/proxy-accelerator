@@ -1,0 +1,111 @@
+{
+  "log": { "level": "warn", "timestamp": true },
+  "dns": {
+    "servers": [
+      { "type": "udp", "tag": "dns-ph", "server": "1.1.1.1", "detour": "ph-out" },
+      { "type": "local", "tag": "dns-local" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hy2-ph",
+      "listen": "::",
+      "listen_port": __HY2_PH_PORT__,
+      "up_mbps": __UP_MBPS__,
+      "down_mbps": __DOWN_MBPS__,
+      "users": [],
+      "masquerade": "https://www.bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": [ "h3" ],
+        "server_name": "__SNI__",
+        "certificate_path": "/etc/sing-box/cert.pem",
+        "key_path": "/etc/sing-box/key.pem"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ph",
+      "listen": "::",
+      "listen_port": __VLESS_PH_PORT__,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "__REALITY_SNI__",
+        "reality": {
+          "enabled": true,
+          "handshake": { "server": "__REALITY_SNI__", "server_port": 443 },
+          "private_key": "__REALITY_PRIVATE_KEY__",
+          "short_id": [ "__SHORT_ID__" ]
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hy2-hk",
+      "listen": "::",
+      "listen_port": __HY2_HK_PORT__,
+      "up_mbps": __UP_MBPS__,
+      "down_mbps": __DOWN_MBPS__,
+      "users": [],
+      "masquerade": "https://www.bing.com",
+      "tls": {
+        "enabled": true,
+        "alpn": [ "h3" ],
+        "server_name": "__SNI__",
+        "certificate_path": "/etc/sing-box/cert.pem",
+        "key_path": "/etc/sing-box/key.pem"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-hk",
+      "listen": "::",
+      "listen_port": __VLESS_HK_PORT__,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "__REALITY_SNI__",
+        "reality": {
+          "enabled": true,
+          "handshake": { "server": "__REALITY_SNI__", "server_port": 443 },
+          "private_key": "__REALITY_PRIVATE_KEY__",
+          "short_id": [ "__SHORT_ID__" ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "ph-out",
+      "bind_interface": "wg0",
+      "domain_resolver": { "server": "dns-ph", "strategy": "ipv4_only" }
+    },
+    {
+      "type": "direct",
+      "tag": "direct",
+      "domain_resolver": "dns-local"
+    }
+  ],
+  "route": {
+    "rules": [
+      { "inbound": [ "hy2-ph", "vless-ph" ], "action": "route", "outbound": "ph-out" },
+      { "inbound": [ "hy2-hk", "vless-hk" ], "action": "route", "outbound": "direct" }
+    ],
+    "final": "direct",
+    "default_domain_resolver": "dns-local"
+  },
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:10085",
+      "stats": {
+        "enabled": true,
+        "inbounds": [ "hy2-ph", "vless-ph", "hy2-hk", "vless-hk" ],
+        "outbounds": [ "ph-out", "direct" ],
+        "users": []
+      }
+    }
+  }
+}

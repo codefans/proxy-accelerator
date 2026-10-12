@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# 中转 VPS 防火墙。所有容器都用 host 网络，不依赖 Docker 的 iptables 规则。
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0; policy drop;
+    ct state established,related accept
+    ct state invalid drop
+    iif "lo" accept
+    icmp type echo-request accept
+    icmpv6 type { echo-request, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, nd-router-solicit } accept
+    __SSH_RULE__ comment "SSH"
+    tcp dport { 80, 2053, __VLESS_PH_PORT__, __VLESS_HK_PORT__ } accept comment "ACME / 订阅(Caddy) / Reality"
+    udp dport { __HY2_PH_PORT__, __HY2_HK_PORT__, __WG_PORT__ } accept comment "Hysteria2 / WireGuard"
+    udp dport __HOP_PORTS__ accept comment "Hysteria2 端口跳跃"
+    iifname "wg0" accept
+    iifname "tailscale0" accept
+  }
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+  }
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
+
+table ip nat {
+  chain prerouting {
+    type nat hook prerouting priority -100;
+    udp dport __HOP_PORTS__ redirect to :__HY2_PH_PORT__
+  }
+}

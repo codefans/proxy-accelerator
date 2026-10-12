@@ -1,0 +1,112 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    name: subscribe 单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r subscribe/requirements-dev.txt
+      - run: pytest -q
+        working-directory: subscribe
+
+  shell:
+    name: shellcheck + nftables + sing-box 配置
+    runs-on: ubuntu-latest
+    env:
+      SING_BOX_VERSION: "1.14.3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -S warning $(git ls-files '*.sh') subscribe/pa
+      - name: nftables 模板语法
+        run: |
+          sudo apt-get install -y -qq nftables >/dev/null
+          sed -e 's|__SSH_RULE__|tcp dport 22 accept|' -e 's|__WG_PORT__|51820|g' -e 's|__HOP_PORTS__|20000-30000|g' \
+              -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
+              relay/nftables.conf.template > /tmp/relay.nft
+          sudo nft -c -f /tmp/relay.nft
+          sed -e 's|__SSH_RULE__|iifname "tailscale0" tcp dport 22 accept|' -e 's|__WG_PORT__|51820|g' -e 's|__HOP_PORTS__|20000-30000|g' \
+              -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
+              relay/nftables.conf.template > /tmp/relay-ts.nft
+          sudo nft -c -f /tmp/relay-ts.nft
+          sudo mkdir -p /etc/nftables.d
+          sed -e 's|__WAN_IF__|eth0|g' -e 's|__HY2_PORT__|443|g' -e 's|__VLESS_PORT__|443|g' -e 's|__HOP_PORTS__|20000-30000|g' \
+              node-ph/v6/nftables-v6.conf.template | sudo tee /etc/nftables.d/v6.nft >/dev/null
+          sed -e 's|__WAN_IF__|eth0|g' node-ph/nftables.conf.template > /tmp/node.nft
+          sudo nft -c -f /tmp/node.nft
+      - name: IPv6 节点 jq 渲染 + sing-box check
+        run: |
+          sudo apt-get install -y -qq jq >/dev/null
+          cat > /tmp/node.json <<'J'
+          {"version":1,"params":{"REALITY_PRIVATE_KEY":"sEDWl52HNrbmKpgbyxfBwZLqIPJDQd2Ql3RbDVXpzGw","SHORT_ID":"0123456789abcdef","REALITY_SNI":"www.microsoft.com","SNI":"www.bing.com","HY2_PH_PORT":"443","VLESS_PH_PORT":"443","HOP_PORTS":"20000-30000","UP_MBPS":"40","DOWN_MBPS":"40"},"users":[{"name":"b","uuid":"11111111-2222-3333-4444-555555555555","hy2_password":"pw"},{"name":"a","uuid":"22222222-2222-3333-4444-555555555555","hy2_password":"pw2"}],"v6_host":"ph.example.com"}
+          J
+          jq -f node-ph/v6/render.jq --arg cert /tmp/sb/cert.pem --arg key /tmp/sb/key.pem /tmp/node.json > /tmp/sb/v6.json
+          test "$(jq -r '.inbounds[0].users[0].name' /tmp/sb/v6.json)" = a
+          sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box check -c /tmp/sb/v6.json
+          # relay-standby 的规则内嵌在 install.sh 里：抽出 heredoc 渲染后检查
+          sed -n '/^cat > \/etc\/nftables.conf <<NFT$/,/^NFT$/p' relay-standby/install.sh | sed '1d;$d' \
+            | sed -e 's|\$SSH_PORT|22|g' -e 's|\$WAN_IF|eth0|g' -e 's|\$TCP_PORTS|443,8443|g' -e 's|\$UDP_PORTS|443,8443|g' \
+                  -e 's|\$HOP_PORTS|20000-30000|g' -e 's|\$PRIMARY_IP|203.0.113.1|g' > /tmp/standby.nft
+          sudo nft -c -f /tmp/standby.nft
+      - name: sing-box 配置模板（官方构建，去掉 v2ray_api 段）
+        run: |
+          curl -fsSL -o sb.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          tar xzf sb.tar.gz && SB="sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box"
+          mkdir -p /tmp/sb && openssl ecparam -genkey -name prime256v1 -out /tmp/sb/key.pem
+          openssl req -new -x509 -days 1 -key /tmp/sb/key.pem -out /tmp/sb/cert.pem -subj "/CN=www.bing.com"
+          PRIV="$($SB generate reality-keypair | awk '/PrivateKey/{print $2}')"
+          sed -e 's|__HY2_PH_PORT__|443|g' -e 's|__VLESS_PH_PORT__|443|g' -e 's|__HY2_HK_PORT__|8443|g' -e 's|__VLESS_HK_PORT__|8443|g' \
+              -e 's|__UP_MBPS__|50|g' -e 's|__DOWN_MBPS__|50|g' -e 's|__SNI__|www.bing.com|g' -e 's|__REALITY_SNI__|www.microsoft.com|g' \
+              -e "s|__REALITY_PRIVATE_KEY__|$PRIV|g" -e 's|__SHORT_ID__|0123456789abcdef|g' \
+              -e 's|/etc/sing-box/|/tmp/sb/|g' relay/sing-box/config.template.json > /tmp/sb/full.json
+          jq 'del(.experimental.v2ray_api)' /tmp/sb/full.json > /tmp/sb/config.json
+          $SB check -c /tmp/sb/config.json
+          cp /tmp/sb/full.json /tmp/sb-full.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rendered-config
+          path: /tmp/sb-full.json
+
+  docker:
+    name: relay 镜像构建（自编译 sing-box + v2ray_api 配置校验）→ 推到 GHCR
+    runs-on: ubuntu-latest
+    needs: shell
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SING_BOX_VERSION: "1.14.3"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f relay/Dockerfile --build-arg SING_BOX_VERSION=${SING_BOX_VERSION} -t relay:ci .
+      - run: docker run --rm --entrypoint sing-box relay:ci version
+      - uses: actions/download-artifact@v4
+        with:
+          name: rendered-config
+          path: /tmp/cfg
+      - name: 完整配置（含 v2ray_api）在自编译 sing-box 上 check
+        run: |
+          mkdir -p /tmp/sb && cd /tmp/sb
+          openssl ecparam -genkey -name prime256v1 -out key.pem
+          openssl req -new -x509 -days 1 -key key.pem -out cert.pem -subj "/CN=www.bing.com"
+          sed -e 's|/tmp/sb/|/etc/sing-box/|g' /tmp/cfg/sb-full.json > config.json
+          docker run --rm -v /tmp/sb:/etc/sing-box --entrypoint sing-box relay:ci check -c /etc/sing-box/config.json
+      - name: pa --help 能跑
+        run: docker run --rm relay:ci pa --help
+      - name: 推到 GHCR（仅 main 分支）
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}-relay"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag relay:ci "$IMAGE:${SING_BOX_VERSION}"
+          docker tag relay:ci "$IMAGE:latest"
+          docker push "$IMAGE:${SING_BOX_VERSION}"
+          docker push "$IMAGE:latest"
+          echo "镜像: $IMAGE:${SING_BOX_VERSION}  → VPS 上 RELAY_IMAGE=$IMAGE:${SING_BOX_VERSION} bash relay/install.sh" >> "$GITHUB_STEP_SUMMARY"

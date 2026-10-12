@@ -1,0 +1,3 @@
+#!/bin/sh
+# 容器内 CLI 入口
+cd /app && exec python -m app.cli "$@"

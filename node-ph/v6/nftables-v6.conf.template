@@ -1,0 +1,23 @@
+# IPv6 直连线路：公网 IPv6 入站只放 sing-box 端口；端口跳跃段重定向到 Hysteria2。
+# 由 install-v6.sh 渲染到 /etc/nftables.d/v6.nft，被 /etc/nftables.conf include。
+table inet pa_v6
+delete table inet pa_v6
+table inet pa_v6 {
+  chain input {
+    type filter hook input priority 0; policy accept;
+    meta nfproto ipv6 iifname "__WAN_IF__" ct state established,related accept
+    meta nfproto ipv6 iifname "__WAN_IF__" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    meta nfproto ipv6 iifname "__WAN_IF__" tcp dport __VLESS_PORT__ accept comment "Reality"
+    meta nfproto ipv6 iifname "__WAN_IF__" udp dport { __HY2_PORT__, __HOP_PORTS__ } accept comment "Hysteria2 + 端口跳跃"
+    meta nfproto ipv6 iifname "__WAN_IF__" drop comment "其余 IPv6 公网入站（含 SSH）一律丢弃"
+  }
+}
+
+table ip6 pa_nat6
+delete table ip6 pa_nat6
+table ip6 pa_nat6 {
+  chain prerouting {
+    type nat hook prerouting priority -100;
+    iifname "__WAN_IF__" udp dport __HOP_PORTS__ redirect to :__HY2_PORT__
+  }
+}

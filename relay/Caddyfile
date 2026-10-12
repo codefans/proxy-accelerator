@@ -1,0 +1,21 @@
+# 订阅入口。TCP 443 被 Reality 占用，这里监听 2053（Cloudflare 支持代理的端口）。
+# 证书用 Caddy 内部 CA：Cloudflare SSL 模式设为 "Full"（非 strict）即可；直连时客户端需跳过证书校验。
+# Cloudflare 侧再加一条 Origin Rule：sub.<domain> 的目标端口改写为 2053，用户访问时不用带端口。
+{
+	auto_https off
+}
+
+:2053 {
+	tls internal
+	@api path /sub/* /healthz
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle {
+		respond 404
+	}
+	log {
+		output stderr
+		format console
+	}
+}

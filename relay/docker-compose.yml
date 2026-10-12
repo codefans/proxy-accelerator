@@ -1,0 +1,39 @@
+# 中转 VPS。两个服务都用 host 网络：relay 要监听多端口并绑定 wg0，Caddy 直接占 2053。
+# 在 relay/ 目录执行：docker compose build && docker compose up -d（install.sh 会做）
+# .env（install.sh 生成）：SING_BOX_VERSION、SUB_DOMAIN、TG_*、GOPROXY、RELAY_IMAGE
+#   RELAY_IMAGE 设为 ghcr.io/<你的GitHub用户>/proxy-accelerator-relay:1.14.3 时直接拉 CI 构建好的镜像，不在 VPS 上编译
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: relay/Dockerfile
+      args:
+        SING_BOX_VERSION: ${SING_BOX_VERSION:-1.14.3}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: ${RELAY_IMAGE:-proxy-accelerator/relay:${SING_BOX_VERSION:-1.14.3}}
+    container_name: relay
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    environment:
+      PA_SUB_DOMAIN: ${SUB_DOMAIN:-}
+      PA_TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}
+      PA_TG_CHAT_ID: ${TG_CHAT_ID:-}
+      PA_BACKUP_TO_TELEGRAM: ${BACKUP_TO_TELEGRAM:-0}
+    volumes:
+      - /etc/sing-box:/etc/sing-box
+      - /etc/proxy-accelerator:/etc/proxy-accelerator
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

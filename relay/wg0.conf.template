@@ -1,0 +1,13 @@
+[Interface]
+Address = 10.9.0.1/24
+ListenPort = __WG_PORT__
+PrivateKey = __RELAY_PRIVATE_KEY__
+MTU = 1420
+# 不接管系统路由：0.0.0.0/0 只用于 cryptokey routing，中转自身出口不受影响
+Table = off
+
+[Peer]
+# 宿舍节点（主动外连，不写 Endpoint，握手后自动学习）
+PublicKey = __NODE_PUBLIC_KEY__
+PresharedKey = __PSK__
+AllowedIPs = 0.0.0.0/0, ::/0

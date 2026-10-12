@@ -1,0 +1,28 @@
+#!/usr/sbin/nft -f
+# 宿舍节点：wg0 来的流量 NAT 出宿舍网络；封 SMTP 与 BT 端口，避免宿舍 IP 被投诉。
+# 只管理自己的两张表，不动 Tailscale 等其他程序的规则。
+
+table inet pa_filter
+delete table inet pa_filter
+table inet pa_filter {
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+    ct state established,related accept
+    iifname "wg0" oifname "__WAN_IF__" tcp dport 25 drop comment "SMTP"
+    iifname "wg0" oifname "__WAN_IF__" tcp dport { 6881-6889, 6969 } drop comment "BT"
+    iifname "wg0" oifname "__WAN_IF__" udp dport { 6881-6889, 6969 } drop comment "BT"
+    iifname "wg0" oifname "__WAN_IF__" accept
+  }
+}
+
+table ip pa_nat
+delete table ip pa_nat
+table ip pa_nat {
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    iifname "wg0" oifname "__WAN_IF__" masquerade
+  }
+}
+
+# 附加规则（IPv6 直连线路等），目录由 install.sh 创建并放一个占位文件
+include "/etc/nftables.d/*.nft"
