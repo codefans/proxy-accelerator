@@ -4,7 +4,7 @@
 ARG SING_BOX_VERSION=1.14.3
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM golang:alpine AS builder
+FROM golang:1.26-alpine AS builder
 ARG SING_BOX_VERSION
 ARG GOPROXY
 ENV GOPROXY=${GOPROXY} CGO_ENABLED=0
@@ -13,10 +13,12 @@ WORKDIR /src
 RUN git clone --depth 1 --branch "v${SING_BOX_VERSION}" https://github.com/SagerNet/sing-box.git .
 # 先把依赖拉全（失败重试 5 次），再编译；弱网下避免编译到一半因为下载超时失败
 RUN for i in 1 2 3 4 5; do go mod download && break; echo "go mod download 第 $i 次失败，10 秒后重试"; sleep 10; done && go mod download
+# tag 以官方 release/DEFAULT_BUILD_TAGS_OTHERS 为准裁剪：1.14 起 with_reality_server 已并入 with_utls，再传会报错；
+# badlinkname / tfogo_checklinkname0 与 -checklinkname=0 是上游依赖用 go:linkname 所需（release/LDFLAGS）。
 # -p 1：限制并行编译，1 GB 内存的 VPS 配合 swap 不会 OOM
 RUN go build -p 1 -trimpath \
-    -tags with_quic,with_utls,with_reality_server,with_acme,with_clash_api,with_v2ray_api \
-    -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SING_BOX_VERSION} -s -w -buildid=" \
+    -tags with_quic,with_utls,with_acme,with_clash_api,with_v2ray_api,badlinkname,tfogo_checklinkname0 \
+    -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SING_BOX_VERSION} -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0 -s -w -buildid=" \
     -o /sing-box ./cmd/sing-box
 
 FROM python:3.12-slim
