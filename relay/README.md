@@ -12,10 +12,10 @@ DOMAIN=relay.example.com EMAIL=me@example.com SUB_DOMAIN=sub.example.com UP_MBPS
 
 `UP_MBPS/DOWN_MBPS` 填宿舍晚高峰实测上行 × 0.8，填高了 Hysteria2 会把链路打爆。
 
-**镜像从哪来**：默认在 VPS 上编译 sing-box（5–10 分钟，需要能顺畅访问 proxy.golang.org）。推荐改用 CI 构建好的镜像：仓库推到 GitHub 后，CI 会把 relay 镜像推到 `ghcr.io/<用户>/proxy-accelerator-relay:1.14.3`（在仓库 Packages 页把它设为 Public，VPS 拉取就不用登录），然后：
+**镜像从哪来**：默认在 VPS 上编译 sing-box（5–10 分钟，需要能顺畅访问 proxy.golang.org）。推荐直接用 CI 构建好的镜像 `ghcr.io/codefans/proxy-accelerator-relay:1.14.3`（每次 main 分支推送后 CI 自动构建并推送，公开可匿名拉取；升级 sing-box 时改 ci.yml 与 Dockerfile 里的版本号，CI 会推出新标签）：
 
 ```bash
-RELAY_IMAGE=ghcr.io/<用户>/proxy-accelerator-relay:1.14.3 UP_MBPS=40 DOWN_MBPS=40 bash relay/install.sh
+RELAY_IMAGE=ghcr.io/codefans/proxy-accelerator-relay:1.14.3 UP_MBPS=40 DOWN_MBPS=40 bash relay/install.sh
 ```
 
 本机编译但 Go 下载慢：`GOPROXY=https://goproxy.io,direct bash relay/install.sh`。

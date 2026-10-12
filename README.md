@@ -27,7 +27,7 @@ docs/
 ## 部署顺序
 
 1. 宿舍笔记本（Debian 12）跑 `sudo bash scripts/probe-network.sh`，四个时段，结果填 `docs/PROBE-RESULT.md`，定出 `UP_MBPS`
-2. 整个仓库拷到 VPS：`UP_MBPS=40 DOWN_MBPS=40 SUB_DOMAIN=sub.<domain> bash relay/install.sh`（详见 [relay/README.md](relay/README.md)）
+2. VPS 上 `git clone https://github.com/codefans/proxy-accelerator.git`，然后 `RELAY_IMAGE=ghcr.io/codefans/proxy-accelerator-relay:1.14.3 UP_MBPS=40 DOWN_MBPS=40 SUB_DOMAIN=sub.<domain> bash relay/install.sh`（镜像由 CI 构建并公开发布，VPS 不用编译；详见 [relay/README.md](relay/README.md)）
 3. 把它打印的 `ph-node-wg0.conf` 拷到笔记本：`sudo RATE_MBIT=40 bash node-ph/install.sh ph-node-wg0.conf`（详见 [node-ph/README.md](node-ph/README.md)）
 4. 中转上 `bash relay/doctor.sh`，"经宿舍出口"一栏显示菲律宾 IP 即打通
 5. `pa adduser <name> --quota 100G --days 30`，把订阅地址和 `docs/USER-GUIDE.md` 发给用户
