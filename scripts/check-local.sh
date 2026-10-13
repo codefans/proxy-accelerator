@@ -75,4 +75,5 @@ cd subscribe
 ok "pytest 通过"
 
 echo
-echo "全部通过。下一步可在本机做完整的中转部署演练：sudo UP_MBPS=40 DOWN_MBPS=40 bash relay/install.sh"
+echo "全部通过。Docker 镜像由 CI 构建（ghcr.io/codefans/proxy-accelerator-relay），VPS 上部署："
+echo "  RELAY_IMAGE=ghcr.io/codefans/proxy-accelerator-relay:1.14.3 UP_MBPS=40 DOWN_MBPS=40 bash relay/install.sh"
